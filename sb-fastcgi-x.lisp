@@ -60,8 +60,24 @@
       ((eql stream :err)
        (setf ostr (slot req 'err)))
       (t (setf ostr (slot req 'out))))
-    (alien-funcall (extern-alien "FCGX_PutS" (function int c-string (* t)))
-                   content ostr)))
+    (etypecase content
+      ((vector (unsigned-byte 8))
+       ;;TODO: it should be possible to get a pointer to CONTENT without copying since CFFI has
+       ;;WITH-POINTER-TO-VECTOR-DATA, but I couldn't see any way in the SBCL documentation
+       (let* ((len (length content))
+              (ar (make-alien unsigned-char len)))
+         (declare (dynamic-extent ar))
+         (unwind-protect
+             (progn
+               (loop for i below len
+                     do (setf (deref ar i) (aref content i)))
+               (alien-funcall (extern-alien "FCGX_PutStr" (function int (* unsigned-char) int (* t)))
+                              ar len ostr))
+           (free-alien ar))))
+      (t
+        ;; Let alien-funcall try to convert any non-byte-vector to a string
+       (alien-funcall (extern-alien "FCGX_PutS" (function int c-string (* t)))
+                      content ostr)))))
 
 (defun fcgx-puts-utf-8 (req content &key (stream :out))
   (let ((ostr nil))
