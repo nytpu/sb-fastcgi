@@ -62,18 +62,10 @@
       (t (setf ostr (slot req 'out))))
     (etypecase content
       ((vector (unsigned-byte 8))
-       ;;TODO: it should be possible to get a pointer to CONTENT without copying since CFFI has
-       ;;WITH-POINTER-TO-VECTOR-DATA, but I couldn't see any way in the SBCL documentation
-       (let* ((len (length content))
-              (ar (make-alien unsigned-char len)))
-         (declare (dynamic-extent ar))
-         (unwind-protect
-             (progn
-               (loop for i below len
-                     do (setf (deref ar i) (aref content i)))
-               (alien-funcall (extern-alien "FCGX_PutStr" (function int (* unsigned-char) int (* t)))
-                              ar len ostr))
-           (free-alien ar))))
+       (sb-sys:with-pinned-objects (content)
+         (let ((ar (sb-sys:vector-sap content)))
+           (alien-funcall (extern-alien "FCGX_PutStr" (function int (* unsigned-char) int (* t)))
+                          ar (length content) ostr))))
       (t
         ;; Let alien-funcall try to convert any non-byte-vector to a string
        (alien-funcall (extern-alien "FCGX_PutS" (function int c-string (* t)))
